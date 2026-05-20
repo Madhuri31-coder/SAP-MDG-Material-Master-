@@ -553,10 +553,6 @@ For mass material creation:
 
 ## Contact & Support
 
-**For MDG Issues**:
-- MDG Support Team: mdg-support@company.com
-- Slack Channel: #sap-mdg-support
-
 **For IDOC Issues**:
 - Basis Team: basis-team@company.com
 - IDOC Monitor: Run Z_MDG_IDOC_ERROR_MONITOR daily
@@ -564,6 +560,5 @@ For mass material creation:
 ---
 
 **Document Version**: 1.0  
-**Last Updated**: May 2026  
 **Prepared By**: Madhuri - SAP MDG Consultant  
-**Review**: Recommended every 6 months
+
