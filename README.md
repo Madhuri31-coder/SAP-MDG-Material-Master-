@@ -177,10 +177,9 @@ Detailed documentation is available in the `/docs` folder:
 ## 👤 About
 
 **Author**: Madhuri  
-**Experience**: 7+ years in SAP MDG  
+**Experience**: 5+ years in SAP MDG  
 **Specialization**: MDG-M, MDG-C, MDG-S, IDOC Integration, Data Quality Management  
-**LinkedIn**: [Add your LinkedIn profile]  
-**Email**: [Add your email]
+**Email**: Madhurich9631@gmail.com
 
 ---
 
@@ -190,11 +189,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ---
 
-## 🙏 Acknowledgments
 
-This project represents real-world SAP MDG implementation experience and demonstrates practical solutions to common master data governance challenges in enterprise environments.
-
----
-
-**⭐ If you find this project helpful, please consider giving it a star!**
 
