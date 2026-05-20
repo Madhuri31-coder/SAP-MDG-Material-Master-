@@ -1,0 +1,75 @@
+# SAP MDG IDOC Project - .gitignore
+
+# Operating System Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Editor and IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+.classpath
+
+# Log files
+*.log
+logs/
+*.tmp
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# SAP-specific (if you add actual transport files later)
+*.dat
+*.bin
+cofiles/
+datafiles/
+
+# Documentation temporary files
+*.pdf~
+*.docx~
+
+# Node modules (if you add any documentation generators)
+node_modules/
+package-lock.json
+
+# Python (if you add any scripts)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+ENV/
+
+# Compiled files
+*.class
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Personal notes (keep these private)
+personal-notes/
+scratch/
+todo.txt
+
+# Credentials and sensitive data
+credentials.txt
+passwords.txt
+*.key
+*.pem
+
+# Test data with real company info
+*real-data*
+*production*
