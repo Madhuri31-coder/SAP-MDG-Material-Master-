@@ -554,7 +554,6 @@ For mass material creation:
 ## Contact & Support
 
 **For IDOC Issues**:
-- Basis Team: basis-team@company.com
 - IDOC Monitor: Run Z_MDG_IDOC_ERROR_MONITOR daily
 
 ---
