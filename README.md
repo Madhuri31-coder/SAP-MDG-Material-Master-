@@ -179,8 +179,7 @@ Detailed documentation is available in the `/docs` folder:
 **Author**: Madhuri  
 **Experience**: 7+ years in SAP MDG  
 **Specialization**: MDG-M, MDG-C, MDG-S, IDOC Integration, Data Quality Management  
-**LinkedIn**: [Add your LinkedIn profile]  
-**Email**: [Add your email]
+**Email**: Madhurich9631@gmail.com
 
 ---
 
