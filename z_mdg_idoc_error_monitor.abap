@@ -2,23 +2,72 @@
 *& Report: Z_MDG_IDOC_ERROR_MONITOR
 *& Purpose: Monitor and reprocess failed MDG Material IDOCs
 *&---------------------------------------------------------------------*
-
+*&
+*& DESIGN WALKTHROUGH
+*& ==================
+*& WHY THIS REPORT EXISTS?
+*&   IDOC distribution is asynchronous. After MDG activates a material
+*&   change, the MATMAS05 IDOCs are dispatched to receiving systems via
+*&   ALE. Network issues, system downtime, or data errors at the
+*&   receiving end can cause IDOCs to fail silently — the MDG change
+*&   request shows "Activated" but the plant system never received the
+*&   update.
+*&
+*&   Standard SAP transaction WE05 shows IDOC errors but requires
+*&   manual navigation per IDOC. This report provides:
+*&     (a) Aggregated error visibility across all MDG IDOCs in a
+*&         date range — one screen, full picture
+*&     (b) Automated reprocessing for recoverable technical errors
+*&         (status 64, 68) without manual intervention
+*&     (c) Email alerting so the support team is proactively notified
+*&         rather than discovering errors from business complaints
+*&
+*& IDOC STATUS CODE REFERENCE (WHY THESE THREE?):
+*&   Status 51 = Application error at receiver (e.g. data validation
+*&               failure, missing config). Requires investigation and
+*&               data correction — cannot be auto-reprocessed.
+*&   Status 64 = Ready to be transferred to application (technical
+*&               issue, not a data problem). Safe to reprocess.
+*&   Status 68 = Error in ALE service layer (e.g. RFC connection
+*&               failure, timeout). Safe to reprocess once system
+*&               is available.
+*&
+*& WHY SELECTIVE REPROCESSING?
+*&   Auto-reprocessing status 51 would be dangerous — it would keep
+*&   hammering the receiving system with bad data. We only auto-
+*&   reprocess 64 and 68 because these are infrastructure failures,
+*&   not data problems. Status 51 errors are flagged in the output
+*&   as "Requires manual correction" so the team knows to investigate.
+*&
+*& WHY EDI_DOCUMENT_REPROCESS_DIRECT VS IDOC_INBOUND_ASYNCHRONOUS?
+*&   EDI_DOCUMENT_REPROCESS_DIRECT re-triggers processing for an
+*&   existing IDOC without creating a new document number. This
+*&   preserves the audit trail and avoids duplicate IDOCs in the
+*&   receiving system. IDOC_INBOUND_ASYNCHRONOUS would generate a
+*&   new IDOC number which complicates reconciliation.
+*&
+*& TABLE REFERENCE:
+*&   EDIDC = IDOC control records (header: status, dates, partners)
+*&   EDIDS = IDOC status records (history of status changes + text)
+*&   EDID4 = IDOC data segments (actual payload content)
+*&
+*&---------------------------------------------------------------------*
 REPORT z_mdg_idoc_error_monitor.
 
 *----------------------------------------------------------------------*
 * Type Definitions
 *----------------------------------------------------------------------*
 TYPES: BEGIN OF ty_error_idoc,
-         docnum    TYPE edi_docnum,
-         status    TYPE edi_status,
-         credat    TYPE edi_credat,
-         cretim    TYPE edi_cretim,
-         mestyp    TYPE edi_mestyp,
-         rcvprn    TYPE edi_rcvprn,
-         sndprn    TYPE edi_sndprn,
-         matnr     TYPE matnr,
-         statxt    TYPE edist,
-         tabname   TYPE edi_tabnam,
+         docnum  TYPE edi_docnum,
+         status  TYPE edi_status,
+         credat  TYPE edi_credat,
+         cretim  TYPE edi_cretim,
+         mestyp  TYPE edi_mestyp,
+         rcvprn  TYPE edi_rcvprn,
+         sndprn  TYPE edi_sndprn,
+         matnr   TYPE matnr,
+         statxt  TYPE edist,
+         tabname TYPE edi_tabnam,
        END OF ty_error_idoc.
 
 *----------------------------------------------------------------------*
@@ -32,29 +81,36 @@ DATA: gt_error_idocs TYPE TABLE OF ty_error_idoc,
 
 *----------------------------------------------------------------------*
 * Selection Screen
+*
+* DESIGN NOTE: Three blocks group related parameters logically.
+* Block 1 (Date) and Block 2 (IDOC type) are filter criteria.
+* Block 3 (Processing) controls what actions the report takes.
+* Separating filters from actions makes the screen self-documenting
+* and reduces user errors from misunderstanding checkboxes.
 *----------------------------------------------------------------------*
 SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE TEXT-001.
-PARAMETERS: p_datefr TYPE sydatum DEFAULT sy-datum OBLIGATORY,
-            p_dateto TYPE sydatum DEFAULT sy-datum OBLIGATORY.
+  PARAMETERS: p_datefr TYPE sydatum DEFAULT sy-datum OBLIGATORY,
+              p_dateto TYPE sydatum DEFAULT sy-datum OBLIGATORY.
 SELECTION-SCREEN END OF BLOCK b1.
 
 SELECTION-SCREEN BEGIN OF BLOCK b2 WITH FRAME TITLE TEXT-002.
-PARAMETERS: p_msgty TYPE edi_mestyp DEFAULT 'MATMAS' OBLIGATORY,
-            p_idocty TYPE edi_idoctyp DEFAULT 'MATMAS05'.
+  PARAMETERS: p_msgty  TYPE edi_mestyp  DEFAULT 'MATMAS' OBLIGATORY,
+              p_idocty TYPE edi_idoctyp DEFAULT 'MATMAS05'.
 SELECTION-SCREEN END OF BLOCK b2.
 
 SELECTION-SCREEN BEGIN OF BLOCK b3 WITH FRAME TITLE TEXT-003.
-PARAMETERS: p_repro AS CHECKBOX DEFAULT 'X',
-            p_detail AS CHECKBOX,
-            p_email AS CHECKBOX.
-PARAMETERS: p_mailto TYPE ad_smtpadr DEFAULT 'mdg-support@company.com'.
+  PARAMETERS: p_repro  AS CHECKBOX DEFAULT 'X',
+              p_detail AS CHECKBOX,
+              p_email  AS CHECKBOX.
+  PARAMETERS: p_mailto TYPE ad_smtpadr DEFAULT 'mdg-support@company.com'.
 SELECTION-SCREEN END OF BLOCK b3.
 
 *----------------------------------------------------------------------*
 * Initialization
 *----------------------------------------------------------------------*
 INITIALIZATION.
-  " Set default date range to last 7 days
+  " Default to last 7 days — covers typical weekly monitoring window
+  " Most IDOC errors surface within 24-48h; 7 days catches stragglers
   p_datefr = sy-datum - 7.
   p_dateto = sy-datum.
 
@@ -62,7 +118,6 @@ INITIALIZATION.
 * Main Processing
 *----------------------------------------------------------------------*
 START-OF-SELECTION.
-
   PERFORM fetch_error_idocs.
   PERFORM display_error_summary.
 
@@ -81,38 +136,49 @@ START-OF-SELECTION.
 
 *----------------------------------------------------------------------*
 * Fetch Error IDOCs
+*
+* DESIGN NOTE: We join EDIDC (control) → EDIDS (status text) →
+* EDID4 (segment data) in separate SELECTs rather than a single
+* join. Reason: EDID4 can have thousands of rows per IDOC and a
+* join would create a cartesian explosion. The loop with targeted
+* single selects is more efficient for typical error volumes
+* (usually < 100 IDOCs per monitoring run).
+*
+* Material number extraction: E1MARAM segment holds the basic data
+* header. MATNR starts at offset 3 (after 3-char segment counter)
+* and is 18 characters. We strip leading zeros with SHIFT...LEFT
+* DELETING LEADING '0' to match display format in MM03.
 *----------------------------------------------------------------------*
 FORM fetch_error_idocs.
 
   DATA: lt_edidc TYPE TABLE OF edidc,
-        ls_edidc TYPE edidc,
-        ls_edids TYPE edids,
-        lv_matnr TYPE matnr.
+        ls_edidc TYPE edidc.
 
-  " Select failed IDOCs from control record table
+  " Select failed IDOCs — status 51/64/68 only
   SELECT docnum status credat cretim mestyp rcvprn sndprn tabnam
     FROM edidc
     INTO CORRESPONDING FIELDS OF TABLE lt_edidc
     WHERE mestyp = p_msgty
       AND idoctp = p_idocty
       AND credat BETWEEN p_datefr AND p_dateto
-      AND status IN ('51', '64', '68')  " Error status codes
+      AND status IN ('51', '64', '68')
     ORDER BY credat DESCENDING, cretim DESCENDING.
 
-  " Get error details and material number
   LOOP AT lt_edidc INTO ls_edidc.
 
     CLEAR gs_error_idoc.
     MOVE-CORRESPONDING ls_edidc TO gs_error_idoc.
 
-    " Get latest status text
+    " Get the most recent status text from EDIDS
+    " ORDER BY countr DESCENDING ensures we get the latest message,
+    " not the first one (status can change multiple times)
     SELECT SINGLE statxt
       FROM edids
       INTO gs_error_idoc-statxt
       WHERE docnum = ls_edidc-docnum
       ORDER BY countr DESCENDING.
 
-    " Extract material number from IDOC data segments
+    " Extract material number from E1MARAM segment payload
     SELECT SINGLE sdata
       FROM edid4
       INTO @DATA(lv_sdata)
@@ -120,7 +186,6 @@ FORM fetch_error_idocs.
         AND segnam = 'E1MARAM'.
 
     IF sy-subrc = 0.
-      " Material number is at position 3-20 in E1MARAM segment
       gs_error_idoc-matnr = lv_sdata+3(18).
       SHIFT gs_error_idoc-matnr LEFT DELETING LEADING '0'.
     ENDIF.
@@ -142,7 +207,6 @@ FORM display_error_summary.
         lv_status64 TYPE i,
         lv_status68 TYPE i.
 
-  " Count by status
   LOOP AT gt_error_idocs INTO gs_error_idoc.
     CASE gs_error_idoc-status.
       WHEN '51'. ADD 1 TO lv_status51.
@@ -151,22 +215,21 @@ FORM display_error_summary.
     ENDCASE.
   ENDLOOP.
 
-  " Display summary
   WRITE: / '═══════════════════════════════════════════════════════════'.
-  WRITE: / '           MDG IDOC ERROR MONITORING REPORT'.
+  WRITE: / '   MDG IDOC ERROR MONITORING REPORT'.
   WRITE: / '═══════════════════════════════════════════════════════════'.
   SKIP 1.
-  WRITE: / 'Date Range      :', p_datefr, '-', p_dateto.
-  WRITE: / 'Message Type    :', p_msgty.
-  WRITE: / 'IDOC Type       :', p_idocty.
+  WRITE: / 'Date Range  :', p_datefr, '-', p_dateto.
+  WRITE: / 'Msg Type    :', p_msgty.
+  WRITE: / 'IDOC Type   :', p_idocty.
   SKIP 1.
   WRITE: / '───────────────────────────────────────────────────────────'.
   WRITE: / 'SUMMARY'.
   WRITE: / '───────────────────────────────────────────────────────────'.
-  WRITE: / 'Total Errors    :', gv_count.
-  WRITE: / '  Status 51 (Application Error)     :', lv_status51.
-  WRITE: / '  Status 64 (Ready for transfer)    :', lv_status64.
-  WRITE: / '  Status 68 (Error in ALE service)  :', lv_status68.
+  WRITE: / 'Total Errors                    :', gv_count.
+  WRITE: / ' Status 51 (Application Error)  :', lv_status51 COLOR COL_NEGATIVE.
+  WRITE: / ' Status 64 (Ready for transfer) :', lv_status64 COLOR COL_TOTAL.
+  WRITE: / ' Status 68 (ALE Service Error)  :', lv_status68 COLOR COL_TOTAL.
   SKIP 1.
 
 ENDFORM.
@@ -180,21 +243,18 @@ FORM display_error_details.
   WRITE: / 'DETAILED ERROR LIST'.
   WRITE: / '───────────────────────────────────────────────────────────'.
   SKIP 1.
-
-  WRITE: / 'IDOC Number', 20 'Status', 30 'Material',
-           45 'Receiver', 60 'Date/Time', 80 'Error Description'.
+  WRITE: / 'IDOC Number', 20 'Sts', 25 'Material',
+            40 'Receiver', 55 'Date', 66 'Time', 76 'Error Description'.
   WRITE: / sy-uline.
 
   LOOP AT gt_error_idocs INTO gs_error_idoc.
-
     WRITE: / gs_error_idoc-docnum,
-           20 gs_error_idoc-status COLOR COL_NEGATIVE,
-           30 gs_error_idoc-matnr,
-           45 gs_error_idoc-rcvprn,
-           60 gs_error_idoc-credat,
-           70 gs_error_idoc-cretim,
-           80 gs_error_idoc-statxt(50).
-
+             20 gs_error_idoc-status COLOR COL_NEGATIVE,
+             25 gs_error_idoc-matnr,
+             40 gs_error_idoc-rcvprn,
+             55 gs_error_idoc-credat,
+             66 gs_error_idoc-cretim,
+             76 gs_error_idoc-statxt(50).
   ENDLOOP.
 
   SKIP 1.
@@ -203,10 +263,17 @@ ENDFORM.
 
 *----------------------------------------------------------------------*
 * Reprocess Failed IDOCs
+*
+* DESIGN NOTE: We only auto-reprocess status 64 and 68.
+*   Status 64/68 = infrastructure/technical failure → safe to retry
+*   Status 51    = application/data error → manual investigation needed
+*
+* If EDI_DOCUMENT_REPROCESS_DIRECT fails (sy-subrc <> 0), we count
+* it in gv_failed and continue — one bad IDOC should not abort the
+* entire reprocessing run. The failed count is reported at the end
+* so the support team knows exactly how many need manual attention.
 *----------------------------------------------------------------------*
 FORM reprocess_idocs.
-
-  DATA: lv_success TYPE abap_bool.
 
   WRITE: / '───────────────────────────────────────────────────────────'.
   WRITE: / 'REPROCESSING FAILED IDOCS'.
@@ -215,29 +282,29 @@ FORM reprocess_idocs.
 
   LOOP AT gt_error_idocs INTO gs_error_idoc.
 
-    WRITE: / 'Reprocessing IDOC:', gs_error_idoc-docnum, '...'.
+    WRITE: / 'Processing IDOC:', gs_error_idoc-docnum, '...'.
 
-    " Only reprocess status 64 and 68 (technical errors)
     IF gs_error_idoc-status = '64' OR gs_error_idoc-status = '68'.
 
       CALL FUNCTION 'EDI_DOCUMENT_REPROCESS_DIRECT'
         EXPORTING
-          document_number = gs_error_idoc-docnum
+          document_number       = gs_error_idoc-docnum
         EXCEPTIONS
           document_number_invalid = 1
           OTHERS                  = 2.
 
       IF sy-subrc = 0.
-        WRITE: '   ✓ SUCCESS', icon_led_green AS ICON.
+        WRITE: ' SUCCESS', icon_led_green AS ICON.
         ADD 1 TO gv_reprocessed.
       ELSE.
-        WRITE: '   ✗ FAILED', icon_led_red AS ICON.
+        WRITE: ' FAILED', icon_led_red AS ICON.
         ADD 1 TO gv_failed.
       ENDIF.
 
     ELSE.
-      " Status 51 requires manual correction
-      WRITE: '   ⚠ SKIPPED (Requires manual correction)', icon_led_yellow AS ICON.
+      " Status 51 — data error, needs manual correction before retry
+      WRITE: ' SKIPPED (status 51 - requires manual correction)',
+             icon_led_yellow AS ICON.
     ENDIF.
 
   ENDLOOP.
@@ -255,13 +322,23 @@ FORM display_reprocess_results.
   WRITE: / 'REPROCESSING RESULTS'.
   WRITE: / '───────────────────────────────────────────────────────────'.
   WRITE: / 'Successfully Reprocessed :', gv_reprocessed COLOR COL_POSITIVE.
-  WRITE: / 'Failed to Reprocess      :', gv_failed COLOR COL_NEGATIVE.
+  WRITE: / 'Failed to Reprocess      :', gv_failed      COLOR COL_NEGATIVE.
   SKIP 1.
 
 ENDFORM.
 
 *----------------------------------------------------------------------*
 * Send Email Notification
+*
+* DESIGN NOTE: SO_NEW_DOCUMENT_ATT_SEND_API1 uses SAP's internal
+* mail system (SOST / SAPconnect). This requires SCOT configuration
+* on the SAP system. The email is intentionally kept brief —
+* recipients click into WE05 for details. Sending full IDOC dumps
+* in email creates large, unreadable notifications.
+*
+* p_mailto defaults to a team mailbox (mdg-support@company.com)
+* rather than an individual — avoids single-point-of-failure
+* for overnight/weekend alerts.
 *----------------------------------------------------------------------*
 FORM send_error_notification.
 
@@ -269,58 +346,55 @@ FORM send_error_notification.
         ls_mail_body TYPE soli,
         lv_subject   TYPE so_obj_des.
 
-  " Build email subject
-  CONCATENATE 'MDG IDOC Errors -' gv_count 'found on' sy-datum
+  CONCATENATE 'MDG IDOC Alert:' gv_count 'errors found on' sy-datum
     INTO lv_subject SEPARATED BY space.
 
-  " Build email body
   ls_mail_body = 'MDG IDOC Error Monitoring Report'.
   APPEND ls_mail_body TO lt_mail_body.
   APPEND INITIAL LINE TO lt_mail_body.
-
   ls_mail_body = '───────────────────────────────────────'.
   APPEND ls_mail_body TO lt_mail_body.
-
-  CONCATENATE 'Total Errors Found : ' gv_count
+  CONCATENATE 'Total Errors Found : ' gv_count INTO ls_mail_body.
+  APPEND ls_mail_body TO lt_mail_body.
+  CONCATENATE 'Date Range         : ' p_datefr ' - ' p_dateto
     INTO ls_mail_body.
   APPEND ls_mail_body TO lt_mail_body.
-
-  CONCATENATE 'Date Range         : ' p_datefr '-' p_dateto
-    INTO ls_mail_body.
-  APPEND ls_mail_body TO lt_mail_body.
-
   APPEND INITIAL LINE TO lt_mail_body.
-  ls_mail_body = 'Please review the errors in transaction WE02/WE05.'.
+  ls_mail_body = 'Please review errors in transaction WE02 / WE05.'.
+  APPEND ls_mail_body TO lt_mail_body.
+  ls_mail_body = 'Status 64/68 errors have been auto-reprocessed.'.
+  APPEND ls_mail_body TO lt_mail_body.
+  ls_mail_body = 'Status 51 errors require manual investigation.'.
   APPEND ls_mail_body TO lt_mail_body.
 
-  " Send email
   CALL FUNCTION 'SO_NEW_DOCUMENT_ATT_SEND_API1'
     EXPORTING
-      document_data              = VALUE sodocchgi1(
-                                     obj_name = 'IDOC_ERROR'
-                                     obj_descr = lv_subject )
-      commit_work                = 'X'
+      document_data = VALUE sodocchgi1(
+                        obj_name  = 'IDOC_ERROR'
+                        obj_descr = lv_subject )
+      commit_work   = 'X'
     TABLES
-      object_content             = lt_mail_body
-      receivers                  = VALUE somlreci1_tab(
-                                     ( receiver = p_mailto
-                                       rec_type = 'U' ) )
+      object_content = lt_mail_body
+      receivers      = VALUE somlreci1_tab(
+                         ( receiver = p_mailto
+                           rec_type = 'U' ) )
     EXCEPTIONS
-      too_many_receivers         = 1
-      document_not_sent          = 2
-      OTHERS                     = 3.
+      too_many_receivers = 1
+      document_not_sent  = 2
+      OTHERS             = 3.
 
   IF sy-subrc = 0.
     WRITE: / 'Email notification sent to:', p_mailto, icon_led_green AS ICON.
   ELSE.
-    WRITE: / 'Email notification failed', icon_led_red AS ICON.
+    WRITE: / 'Email notification failed - check SCOT configuration',
+             icon_led_red AS ICON.
   ENDIF.
 
 ENDFORM.
 
 *----------------------------------------------------------------------*
 * Text Elements
-*----------------------------------------------------------------------*
 * 001: Date Selection
 * 002: IDOC Selection
 * 003: Processing Options
+*----------------------------------------------------------------------*
