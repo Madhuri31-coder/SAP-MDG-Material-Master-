@@ -259,7 +259,11 @@ CLASS zcl_usmd_idoc_filter IMPLEMENTATION.
         ls_custom_segment-segnam = 'Z1CUSTOM'.
         ls_custom_segment-sdata  = 'PLANT2_SPECIFIC_DATA'.
         APPEND ls_custom_segment TO ct_idoc_data.
-
+WHEN 'PLANT3_100'.
+        " Add custom segment for Plant 3
+        ls_custom_segment-segnam = 'Z1CUSTOM'.
+        ls_custom_segment-sdata  = 'PLANT3_SPECIFIC_DATA'.
+        APPEND ls_custom_segment TO ct_idoc_data.
       WHEN OTHERS.
         " No custom segments for other receivers
     ENDCASE.
