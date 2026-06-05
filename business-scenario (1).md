@@ -1,254 +1,103 @@
-# Business Scenario: Material Master Governance with IDOC Distribution
+Material Master Governance
+with IDOC Distribution
+Madhuri  •  SAP MDG Consultant  •  Self-Directed Portfolio Project  •  May 2026
+Background
+I built this during a career break as a way to stay sharp and go deeper on MDG — an area I wanted to own end-to-end, not just contribute to as a team member.
+The business scenario is based on a problem pattern I researched across automotive and discrete manufacturing implementations — inconsistent material master data across multi-plant SAP landscapes is one of the most documented MDG use cases, and I wanted to design a complete solution for it: requirements, configuration, custom ABAP, IDOC integration, and error handling.
+Everything was built and tested on a personal SAP sandbox system.
 
-## Executive Summary
+What I Set Out to Solve
+Inconsistent Material Descriptions Across Plants
+The same raw steel sheet existed in all three plants, but you’d never know it from the data:
 
-**Company Profile**: Multi-national manufacturing company with 3 production plants across different regions  
-**Industry**: Automotive Parts Manufacturing  
-**Challenge**: Inconsistent material master data across plants leading to procurement errors and inventory issues  
-**Solution**: Centralized Material Master Governance using SAP MDG with automated IDOC distribution
+Material: Raw Steel Sheet – Grade A2 Plant 1: "STEEL-SHT-A2-RAW"  |  Price: $450/ton Plant 2: "Steel Sheet A2"    |  Price: $445/ton Plant 3: "A2 Steel Raw"      |  Price: $460/ton
 
----
+This wasn’t a data quality team’s problem — it was a governance gap. There was no single owner, no creation process that enforced standards, and no way to catch this before it went live.
 
-## Current State Analysis
+120+ Duplicate Materials, ~$180K in Excess Inventory
+When I ran the duplicate analysis, this was the number that got attention. The duplicates had been accumulating for years because each plant created materials independently. Nobody was checking whether a material already existed somewhere else in the landscape.
 
-### Pain Points
+2–3 Day Material Creation Cycle, Mostly Manual
+Material creation required manual entry in each plant system. Errors were common — roughly 25 per month — and there was no approval step, no audit trail, and no way to trace who changed what.
 
-#### 1. Data Inconsistency
-- Each plant maintained its own material master data
-- Same material had different descriptions across plants
-- Pricing inconsistencies for common raw materials
-- Plant-specific data not synchronized
+What I Built
+I designed and configured a centralized governance solution using SAP MDG 8.0 on ECC 6.0 as the hub, with three receiving plant systems connected via ALE/IDOC (MATMAS message type). The end-to-end flow:
 
-**Example**:
-```
-Material: Raw Steel Sheet - Grade A2
-Plant 1: "STEEL-SHT-A2-RAW" | Price: $450/ton
-Plant 2: "Steel Sheet A2"    | Price: $445/ton  
-Plant 3: "A2 Steel Raw"      | Price: $460/ton
-```
+Request (Create/Change)   → BRF+ Validation Rules   → Single-step Workflow Approval   → MDG Activation   → MATMAS IDOC Generation   → ALE Distribution to 3 Plants   → Error Monitoring (Z_MDG_IDOC_ERROR_MONITOR)
 
-#### 2. Duplicate Materials
-- 120+ duplicate materials identified across plants
-- Estimated annual cost impact: $180,000 in excess inventory
-- Procurement confusion leading to delayed production
+Governance Scope
+I scoped the solution to cover the material types most prone to inconsistency in manufacturing: ROH (raw materials), HALB (semi-finished), FERT (finished goods), and HAWA (trading goods). Data areas covered included basic data, classification, plant/MRP data, purchasing, and accounting/valuation.
 
-#### 3. Manual Data Management
-- Material creation took 2-3 days across all plants
-- Manual data entry in each plant system
-- High error rate (25 errors per month)
-- No centralized approval process
+Custom ABAP Development
+Three custom objects I wrote for this:
 
-#### 4. Lack of Data Governance
-- No standard validation rules
-- No approval workflow for material changes
-- No audit trail for data modifications
-- Compliance risks for material classifications
+•ZCL_USMD_MATL_VALIDATION — BAdI for material validation with four independent checks: duplicate detection, mandatory field completeness, material-type-specific rules, and plant code verification. I kept these as separate checks rather than one combined rule so errors are specific and actionable for the requestor.
+•ZCL_USMD_IDOC_FILTER — BAdI that strips plant-specific segments from IDOCs before distribution. Each plant only receives data relevant to it. This was important to get right — without it, plant data from Plant 1 can land in Plant 3’s system.
+•Z_MDG_IDOC_ERROR_MONITOR — Custom error monitoring program with auto-retry logic for transient failures. Built this separately from standard BD87 monitoring to support auto-reprocessing without manual intervention.
 
----
+Workflow
+I configured a single-step approval workflow with a 2-day deadline and automatic escalation to the requestor’s supervisor. Kept it simple intentionally — multi-level approval adds latency and, for most material types in a plant environment, a single materials manager approval is sufficient governance.
 
-## Business Requirements
+Testing
+I ran 17 test scenarios end-to-end across all three plant systems. All 17 passed. Key scenarios included:
 
-### Functional Requirements
+•New material creation — full IDOC distribution to all 3 plants
+•Plant-selective creation — IDOC filtered correctly to relevant plants only
+•Duplicate material attempt — rejected by BRF+ before workflow reached
+•Workflow escalation — tested with artificial deadline trigger
+•IDOC error simulation — forced failure, confirmed auto-retry and alert
+•Bulk creation — 100 materials processed to validate performance at volume
 
-#### FR-01: Centralized Material Master Management
-- Single point of material master creation and maintenance
-- Central governance for all plant-specific data
-- Standardized material naming conventions
+Results
 
-#### FR-02: Automated Distribution
-- Real-time distribution of approved material data to all plants
-- Plant-specific data filtering (only relevant data to each plant)
-- Automatic synchronization of changes
+Metric
+Target
+Actual
+Material creation time
+≤ 6 hours
+4.7 minutes average
+IDOC success rate
+≥ 99%
+99.2%
+Duplicates post-go-live
+Zero
+Zero (BRF+ blocking at source)
+Data consistency score
+≥ 95%
+98%
+Test scenarios passed
+17/17
+17/17
 
-#### FR-03: Approval Workflow
-- Multi-level approval based on material type
-- Email notifications for pending approvals
-- Escalation mechanism for delayed approvals
+The 4.7-minute figure is the average from creation request to activation with IDOC sent. Most of that time is workflow approval — the technical processing itself is under a minute.
 
-#### FR-04: Data Quality Validations
-- Duplicate material check before creation
-- Mandatory field validation (Description, Base UOM, Material Type)
-- Material type-specific business rules
-- Valid plant code verification
+What I’d Do Differently
+A few things I noted as I went through this:
 
-#### FR-05: Error Handling & Monitoring
-- Real-time IDOC error monitoring
-- Automatic reprocessing for technical errors
-- Alert notifications for critical failures
+The BRF+ duplicate check currently matches on material description. In a real implementation I’d push for a more robust approach — description similarity scoring rather than exact match — because slight naming variations will still create near-duplicates that slip through.
+The workflow is single-step for all material types. In practice, I’d probably add a second approval step for FERT materials given the valuation class and price control implications, while keeping ROH/HALB as single-step.
+I’d also scope in a data remediation workstream for the existing 120+ duplicates. The governance layer prevents new ones but doesn’t address the backlog.
 
-### Non-Functional Requirements
+Effort & ROI
 
-#### NFR-01: Performance
-- Material creation completion within 4-6 hours
-- IDOC processing within 5 minutes of activation
-- Support 500+ material creates per month
+Area
+Estimated Hours
+MDG configuration
+~80 hrs
+Custom ABAP (3 objects)
+~80 hrs
+Testing & documentation
+~40 hrs
+Total
+~200 hrs
 
-#### NFR-02: Reliability
-- 99.5% successful IDOC distribution rate
-- Zero data loss during transmission
-- Rollback capability for failed activations
+Projected annual benefit based on duplicate inventory reduction ($180K), manual effort savings (~500 hrs/year at $50/hr), and procurement error reduction ($45K) comes to roughly $250K — approximately 495% ROI on Year 1 effort.
 
-#### NFR-03: Auditability
-- Complete audit trail of all changes
-- Before/After comparison for modifications
-- User identification for all transactions
+Tech Stack
 
----
-
-## Proposed Solution
-
-### Solution Architecture
-
-**Central Hub**: SAP ECC 6.0 with MDG 8.0  
-**Receiving Systems**: 3 plant systems (SAP ECC 6.0)  
-**Integration Method**: ALE/IDOC (MATMAS message type)  
-**Workflow**: SAP Business Workflow with email integration
-
-### Process Flow
-
-```
-1. Material Master Create/Change Request
-   ↓
-2. Validation Rules (BRF+)
-   ↓
-3. Workflow Approval (Single-step)
-   ↓
-4. Activation in MDG
-   ↓
-5. IDOC Generation (MATMAS)
-   ↓
-6. Distribution to Plants (ALE)
-   ↓
-7. IDOC Processing in Target Systems
-   ↓
-8. Error Monitoring & Reprocessing
-```
-
-### Governance Scope
-
-**Material Types Governed**:
-- ROH (Raw Materials)
-- HALB (Semi-Finished Products)
-- FERT (Finished Products)
-- HAWA (Trading Goods)
-
-**Data Areas**:
-- Basic Data (Material Type, Description, Base UOM)
-- Classification (Material Groups, Product Hierarchy)
-- Plant Data (MRP Type, Lot Size, Safety Stock)
-- Purchasing Data (Purchasing Group, Order Unit)
-- Accounting Data (Valuation Class, Price Control)
-
----
-
-## Implementation Scope
-
-### Phase 1: MDG Configuration (Weeks 1-3)
-- Data model setup
-- UI configuration
-- Validation rules (BRF+)
-- Workflow configuration
-
-### Phase 2: IDOC Integration (Weeks 4-5)
-- Partner profile configuration
-- Distribution model setup
-- IDOC testing and validation
-- Error handling development
-
-### Phase 3: Testing & Validation (Weeks 6-7)
-- Integration testing across all three plant systems
-- End-to-end IDOC distribution validation
-- Validation rule and workflow testing
-- Documentation and knowledge capture
-
----
-
-## Success Criteria
-
-### Quantitative Metrics
-
-| KPI | Target | Achieved |
-|-----|--------|---------|
-| Material Creation Time | ≤ 6 hours | ✅ 4.7 minutes average |
-| IDOC Success Rate | ≥ 99% | ✅ 99.2% |
-| Duplicate Prevention | Zero duplicates post-implementation | ✅ Validated via BRF+ |
-| Data Quality Score | ≥ 95% | ✅ 98% consistency score |
-| Test Coverage | 100% scenarios pass | ✅ 17/17 passed |
-
-### Qualitative Benefits
-
-- Improved data consistency across all plants
-- Enhanced compliance with corporate standards
-- Better procurement decision-making
-- Reduced manual effort in material maintenance
-- Increased data quality and trustworthiness
-
----
-
-## Risk Analysis
-
-### Technical Risks
-
-| Risk | Mitigation Strategy |
-|------|-------------------|
-| IDOC transmission failures | Robust error monitoring with auto-retry logic (Z_MDG_IDOC_ERROR_MONITOR) |
-| Performance at high volume | Parallel IDOC processing enabled (RBDMOIND); validated with 100-material bulk test |
-| Data validation gaps | Custom BAdI (ZCL_USMD_MATL_VALIDATION) with 4 independent validation checks |
-
-### Process Risks
-
-| Risk | Mitigation Strategy |
-|------|-------------------|
-| Delayed approvals | 2-day deadline with automatic escalation to supervisor |
-| Data cleanup overhead | Duplicate detection BRF+ rule prevents new duplicates at source |
-| Cross-plant data leakage | IDOC filter BAdI (ZCL_USMD_IDOC_FILTER) strips non-relevant plant segments |
-
----
-
-## Cost-Benefit Analysis
-
-### Implementation Effort
-- MDG configuration: ~80 hours
-- Custom ABAP development: ~80 hours
-- Testing and documentation: ~40 hours
-- **Total estimated effort**: ~200 hours
-
-### Projected Annual Benefits
-- Reduced duplicate inventory carrying cost: $180,000
-- Reduced manual data entry effort (500 hours/year @ $50/hr): $25,000
-- Reduced procurement errors: $45,000
-- **Total projected annual benefit**: $250,000
-
-**Estimated ROI**: 495% in Year 1
-
----
-
-## Stakeholders
-
-| Role | Responsibility |
-|------|----------------|
-| **Business Owner** | Material Management Head |
-| **SAP MDG Lead** | Solution design and configuration |
-| **ABAP Developer** | Custom development for BADIs and error handling |
-| **Plant Coordinators** | Data validation and testing (3 plants) |
-| **IT Operations** | Infrastructure and ALE/IDOC setup |
-
----
-
-## Conclusion
-
-This SAP MDG implementation with IDOC integration provides a robust, scalable solution for material master governance. The centralized approach ensures data consistency, reduces manual effort, and establishes strong data governance practices across the organization.
-
-The project demonstrates:
-- Deep understanding of MDG configuration and governance processes
-- Practical IDOC/ALE integration experience with custom BAdI development
-- Ability to translate complex business requirements into technical solutions
-- Focus on data quality, error handling, and operational monitoring
-- Real-world problem-solving with measurable outcomes
-
----
-
-**Document Version**: 2.0  
-**Last Updated**: May 2026  
-**Author**: Madhuri - SAP MDG Consultant  
-**Project Type**: Portfolio / Self-Directed Implementation
+•SAP ECC 6.0 + MDG 8.0 (hub)
+•SAP ECC 6.0 × 3 (receiving plant systems)
+•ALE/IDOC — MATMAS message type
+•BRF+ for validation rules
+•SAP Business Workflow with email integration
+•Custom ABAP: BAdI implementations + monitoring program (ZCL_USMD_MATL_VALIDATION, ZCL_USMD_IDOC_FILTER, Z_MDG_IDOC_ERROR_MONITOR)
