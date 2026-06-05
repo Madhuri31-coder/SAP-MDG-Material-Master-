@@ -22,34 +22,6 @@
 *&     (c) Email alerting so the support team is proactively notified
 *&         rather than discovering errors from business complaints
 *&
-*& IDOC STATUS CODE REFERENCE (WHY THESE THREE?):
-*&   Status 51 = Application error at receiver (e.g. data validation
-*&               failure, missing config). Requires investigation and
-*&               data correction — cannot be auto-reprocessed.
-*&   Status 64 = Ready to be transferred to application (technical
-*&               issue, not a data problem). Safe to reprocess.
-*&   Status 68 = Error in ALE service layer (e.g. RFC connection
-*&               failure, timeout). Safe to reprocess once system
-*&               is available.
-*&
-*& WHY SELECTIVE REPROCESSING?
-*&   Auto-reprocessing status 51 would be dangerous — it would keep
-*&   hammering the receiving system with bad data. We only auto-
-*&   reprocess 64 and 68 because these are infrastructure failures,
-*&   not data problems. Status 51 errors are flagged in the output
-*&   as "Requires manual correction" so the team knows to investigate.
-*&
-*& WHY EDI_DOCUMENT_REPROCESS_DIRECT VS IDOC_INBOUND_ASYNCHRONOUS?
-*&   EDI_DOCUMENT_REPROCESS_DIRECT re-triggers processing for an
-*&   existing IDOC without creating a new document number. This
-*&   preserves the audit trail and avoids duplicate IDOCs in the
-*&   receiving system. IDOC_INBOUND_ASYNCHRONOUS would generate a
-*&   new IDOC number which complicates reconciliation.
-*&
-*& TABLE REFERENCE:
-*&   EDIDC = IDOC control records (header: status, dates, partners)
-*&   EDIDS = IDOC status records (history of status changes + text)
-*&   EDID4 = IDOC data segments (actual payload content)
 *&
 *&---------------------------------------------------------------------*
 REPORT z_mdg_idoc_error_monitor.
