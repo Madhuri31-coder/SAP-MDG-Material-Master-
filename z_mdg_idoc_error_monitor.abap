@@ -233,18 +233,6 @@ FORM display_error_details.
 
 ENDFORM.
 
-*----------------------------------------------------------------------*
-* Reprocess Failed IDOCs
-*
-* DESIGN NOTE: We only auto-reprocess status 64 and 68.
-*   Status 64/68 = infrastructure/technical failure → safe to retry
-*   Status 51    = application/data error → manual investigation needed
-*
-* If EDI_DOCUMENT_REPROCESS_DIRECT fails (sy-subrc <> 0), we count
-* it in gv_failed and continue — one bad IDOC should not abort the
-* entire reprocessing run. The failed count is reported at the end
-* so the support team knows exactly how many need manual attention.
-*----------------------------------------------------------------------*
 FORM reprocess_idocs.
 
   WRITE: / '───────────────────────────────────────────────────────────'.
@@ -301,17 +289,7 @@ ENDFORM.
 
 *----------------------------------------------------------------------*
 * Send Email Notification
-*
-* DESIGN NOTE: SO_NEW_DOCUMENT_ATT_SEND_API1 uses SAP's internal
-* mail system (SOST / SAPconnect). This requires SCOT configuration
-* on the SAP system. The email is intentionally kept brief —
-* recipients click into WE05 for details. Sending full IDOC dumps
-* in email creates large, unreadable notifications.
-*
-* p_mailto defaults to a team mailbox (mdg-support@company.com)
-* rather than an individual — avoids single-point-of-failure
-* for overnight/weekend alerts.
-*----------------------------------------------------------------------*
+----------------------------------*
 FORM send_error_notification.
 
   DATA: lt_mail_body TYPE TABLE OF soli,
@@ -364,9 +342,3 @@ FORM send_error_notification.
 
 ENDFORM.
 
-*----------------------------------------------------------------------*
-* Text Elements
-* 001: Date Selection
-* 002: IDOC Selection
-* 003: Processing Options
-*----------------------------------------------------------------------*
