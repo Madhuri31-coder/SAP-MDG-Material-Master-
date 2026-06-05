@@ -1,173 +1,397 @@
-# Test Results: SAP MDG Material Master with IDOC Distribution
+SAP MDG Material Master
+Setup & Configuration Guide
+Madhuri  •  SAP MDG Consultant  •  Portfolio Project  •  May 2026
+Prerequisites
+System Requirements
+•SAP ECC 6.0 or S/4HANA with MDG component installed
+•Minimum MDG version: 8.0
+•ALE/IDOC configuration authorization
+•Workflow configuration access
+•ABAP development authorization
 
-## Test Execution Summary
+Access Requirements
+Transaction codes needed:
+•USMD_MODEL, USMD_RULE, USMD_UI_CONF
+•WE20, BD64, PFTC
 
-**Test Cycle**: May 2026  
-**Test Environment**: QAS (Quality Assurance System)  
-**Test Lead**: Madhuri - SAP MDG Consultant  
-**Overall Status**: ✅ PASSED — 17/17 Scenarios (100% Pass Rate)
+Authorization objects:
+•USMD_MODIFY, S_IDOCDEFT, PFAC
+•Development key for custom ABAP
 
----
+Implementation Roadmap
+Week 1-2: MDG Configuration
+  ├─ Data Model Setup
+  ├─ UI Configuration
+  └─ Validation Rules (BRF+)
+ 
+Week 3-4: IDOC Integration
+  ├─ Partner Profiles
+  ├─ Distribution Model
+  └─ IDOC Testing
+ 
+Week 5-6: Custom Development
+  ├─ BAdI Implementation
+  ├─ Error Monitoring Program
+  └─ Unit Testing
+ 
+Week 7: Integration Testing & Documentation
 
-## Detailed Test Results
+Phase 1: MDG Data Model Configuration
+Step 1.1 — Activate Material Data Model
+Transaction: USMD_MODEL
 
-| TC ID | Scenario | Priority | Status | Execution Date | Comments |
-|-------|----------|----------|--------|----------------|----------|
-| TC-001 | Create New Material - Single Plant | High | ✅ PASS | 05/10/2026 | Material M-TEST-001 created successfully. IDOC 000123456789 sent to Plant 1000. Verified in MARC table. |
-| TC-002 | Extend Material - Multiple Plants | High | ✅ PASS | 05/10/2026 | Material extended to Plant 2000 and 3000. 2 IDOCs generated correctly. Plant-specific filtering verified. |
-| TC-003 | Change Material Description | Medium | ✅ PASS | 05/11/2026 | Description updated from "Steel A2" to "Steel A2 Updated". IDOC sent with change flag. All plants updated. |
-| TC-004 | Duplicate Description Validation | High | ✅ PASS | 05/11/2026 | System correctly blocked creation with error "Material description already exists". BADI validation working. |
-| TC-005 | Mandatory Field Validation | High | ✅ PASS | 05/11/2026 | Tested missing Description, Base UOM, Material Type. All correctly blocked with appropriate errors. |
-| TC-006 | Invalid Plant Validation | Medium | ✅ PASS | 05/12/2026 | Plant code 9999 correctly rejected with error "Plant does not exist". |
-| TC-007 | Single-Step Approval Workflow | High | ✅ PASS | 05/12/2026 | Workflow triggered. Email sent to approver. Work item in SBWP. After approval, activation proceeded. |
-| TC-008 | Workflow Rejection | Medium | ✅ PASS | 05/12/2026 | Rejection with reason captured. Requester notified. CR returned to "In Process" status. |
-| TC-009 | Workflow Escalation | Low | ✅ PASS | 05/13/2026 | After 2-day deadline, escalation email sent to supervisor. Original approver still can approve. |
-| TC-010 | IDOC Generation - Structure | High | ✅ PASS | 05/13/2026 | IDOC MATMAS05 generated with all expected segments: E1MARAM, E1MAKTM, E1MARCM, E1MBEWM. |
-| TC-011 | IDOC Filtering by Plant | High | ✅ PASS | 05/13/2026 | IDOC to PLANT1_100 contains only Plant 1000 data. IDOC to PLANT2_100 contains only Plant 2000 data. Filter BADI working correctly. |
-| TC-012 | IDOC Error - Status 51 | Medium | ✅ PASS | 05/14/2026 | Simulated invalid UOM error. IDOC status 51 in target. Error visible in WE02. Logged in monitoring report. |
-| TC-013 | IDOC Error - Status 68 | Medium | ✅ PASS | 05/14/2026 | Simulated RFC connection failure. IDOC status 68. Auto-retry triggered after 5 mins. Eventually processed successfully. |
-| TC-014 | Error Monitoring Report | High | ✅ PASS | 05/14/2026 | Report Z_MDG_IDOC_ERROR_MONITOR executed. Displayed 5 error IDOCs with details. Material numbers extracted correctly. |
-| TC-015 | Automatic IDOC Reprocessing | High | ✅ PASS | 05/14/2026 | Reprocessing flag enabled. Status 68 IDOC reprocessed successfully. Status changed to 53. Material created in target. |
-| TC-016 | Bulk Material Creation (100 materials) | High | ✅ PASS | 05/15/2026 | 100 materials uploaded via LSMW. All activated within 22 minutes (< 30 min target). Performance acceptable. |
-| TC-017 | Concurrent User Testing | Medium | ✅ PASS | 05/15/2026 | 5 users created 10 materials each simultaneously (50 total). No locking issues. All processed successfully. |
+1.Navigate to USMD_MODEL
+2.Select data model: MATERIAL
+3.Click Edit, then go to the Entity Types tab
+4.Ensure the following entities are active:
+◦MATERIAL (Main)
+◦MARA (General Data)
+◦MAKT (Descriptions)
+◦MARC (Plant Data)
+◦MBEW (Valuation)
+◦MEAN (EAN/UPC)
+5.Click Check → Activate
 
----
+Verification: Data model status = Active, all required entities visible in dropdown.
 
-## Test Data Used
+Step 1.2 — Configure Change Request Types
+Transaction: USMD_CREQUEST_TYPE or USMDCRTP
 
-### Material Master Test Data
+MAT01 — Create Material
+CR Type: MAT01
+Description: Create Material
+Data Model: MATERIAL
+Step Type: Single-Step
+Activation: With Workflow
+Allow Draft: Yes
 
-| Material Number | Material Type | Description | Base UOM | Plant(s) | Status |
-|----------------|---------------|-------------|----------|----------|--------|
-| M-TEST-001 | ROH | Steel Sheet Grade A2 | TON | 1000 | Active |
-| M-TEST-002 | ROH | Copper Wire 2.5mm | M | 1000, 2000 | Active |
-| M-TEST-003 | HALB | Semi-Finished Shaft | PC | 2000 | Active |
-| M-TEST-004 | FERT | Finished Bearing Assembly | PC | 1000, 2000, 3000 | Active |
-| M-TEST-005 | HAWA | Imported Valve Component | PC | 1000 | Active |
-| M-TEST-006 | ROH | Aluminum Plate 5mm | KG | 2000, 3000 | Active |
-| M-TEST-007 | FERT | Gearbox Unit Complete | EA | 1000 | Active |
-| M-TEST-008 | ROH | Plastic Granules ABS | KG | 1000 | Active |
-| M-TEST-009 | HALB | Machined Component X | PC | 2000 | Active |
-| M-TEST-010 | ROH | Steel Rod 20mm | M | 3000 | Active |
+MAT02 — Change Material
+CR Type: MAT02
+Description: Change Material
+Data Model: MATERIAL
+Step Type: Single-Step
+Activation: With Workflow
+Allow Draft: Yes
 
-### Bulk Test Data (TC-016)
+MAT03 — Extend Material to Plant
+CR Type: MAT03
+Description: Extend Material to Plant
+Data Model: MATERIAL
+Step Type: Single-Step
+Activation: With Workflow
+Allow Draft: Yes
 
-**Materials**: M-BULK-001 to M-BULK-100  
-**Material Type**: Mixed (ROH, HALB, FERT)  
-**Plants**: Distributed across 1000, 2000, 3000  
-**Upload Method**: LSMW with template  
-**Processing Time**: 22 minutes for 100 materials
+Step 1.3 — Configure UI
+Transaction: USMD_UI_CONF
 
----
+General Data Tab — key field configuration:
 
-## Defects Identified & Resolved
+Field
+Display
+Mandatory
+Read-Only
+MATNR
+Yes
+Yes
+No
+MAKTX
+Yes
+Yes
+No
+MTART
+Yes
+Yes
+No
+MEINS
+Yes
+Yes
+No
+MATKL
+Yes
+Yes
+No
+BISMT
+Yes
+No
+No
 
-| Defect ID | Severity | Description | Test Case | Found Date | Status | Resolution | Resolved Date |
-|-----------|----------|-------------|-----------|------------|--------|------------|---------------|
-| DEF-001 | Medium | Workflow email notification not sent to approver | TC-007 | 05/12/2026 | ✅ Closed | SMTP server configuration was incorrect. Updated SCOT settings. | 05/12/2026 |
-| DEF-002 | Low | Error monitor showing material number as blank for some IDOCs | TC-014 | 05/14/2026 | ✅ Closed | E1MARAM segment position issue. Fixed code to correctly extract MATNR from position 3-20. | 05/14/2026 |
-| DEF-003 | High | Performance degradation with 100+ materials | TC-016 | 05/15/2026 | ✅ Closed | Enabled parallel IDOC processing (RBDMOIND). Added database indexes on EDIDC. | 05/15/2026 |
+Field Groups to create:
+•Basic Data: MATNR, MAKTX, MTART, MEINS
+•Classification: MATKL, BISMT
+•Plant MRP: DISMM, DISPO, DISLS, EISBE
 
----
+Phase 2: Validation Rules (BRF+)
+Step 2.1 — Duplicate Description Check
+Transaction: BRF+ or USMD_RULE
 
-## Performance Metrics
+6.Go to USMD_RULE and create new rule:
+Rule Name: DUPLICATE_MAKTX_CHECK
+Description: Check for duplicate material description
+Rule Type: Validation Rule
 
-### Material Creation Time Breakdown
+Rule logic:
+IF COUNT(MAKT-MAKTX) WHERE MAKTX = CURRENT_MAKTX > 0
+THEN
+  MESSAGE-TYPE = 'E'
+  MESSAGE-TEXT = 'Material description already exists'
+ENDIF
+7.Assign rule to CR Types: MAT01, MAT02, MAT03
 
-```
-Average time per material (end-to-end):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. Change Request Creation    :  45 sec
-2. Validation Execution        :  12 sec
-3. Workflow Processing         : 120 sec (2 min)
-4. Activation                  :  25 sec
-5. IDOC Generation             :  35 sec
-6. IDOC Transmission           :  18 sec
-7. IDOC Processing (Target)    :  25 sec
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Total Average Time             : 280 sec (4.7 min)
-Target: < 6 hours              : ✅ ACHIEVED
-```
+Step 2.2 — Mandatory Fields Validation
+Rule Name: MANDATORY_FIELDS_CHECK
+Description: Check mandatory fields before activation
 
-### Bulk Processing Performance
+Rule logic:
+IF MAKTX IS INITIAL
+  THEN ERROR 'Description is mandatory'
+ 
+IF MEINS IS INITIAL
+  THEN ERROR 'Base UOM is mandatory'
+ 
+IF MTART IS INITIAL
+  THEN ERROR 'Material Type is mandatory'
 
-```
-Test: 100 Materials Upload
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Upload Time (LSMW)             :  2 min
-CR Creation (Batch)            :  3 min
-Validation (All)               :  3 min
-Workflow Approval (Batch)      :  5 min
-Activation (All)               :  8 min
-IDOC Gen & Distribution        :  4 min
-IDOC Processing (All Plants)   :  5 min
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Total Time                     : 30 min
-Target: < 30 minutes           : ✅ ACHIEVED
-Average per Material           : 18 sec
-```
+Phase 3: Workflow Configuration
+Step 3.1 — Configure Workflow Template
+Transaction: PFTC
 
-### System Performance Metrics
+8.Copy standard workflow WS99000076
+9.Create custom workflow: Z_WS_MDG_APPROVAL
 
-| Metric | Before MDG | After MDG | Target | Status |
-|--------|-----------|-----------|--------|--------|
-| Material Creation Time | 2-3 days | 4.7 minutes avg | < 6 hours | ✅ |
-| Data Consistency Score | 65% | 98% | > 95% | ✅ |
-| IDOC Success Rate | N/A | 99.2% | > 99% | ✅ |
-| Duplicate Prevention | Manual/unreliable | 100% blocked at source | Zero new duplicates | ✅ |
+Task: Z_APPROVE_MATERIAL
+Agent: Position → Material Manager
+Deadline: 2 days
+Escalation: Send to supervisor after deadline
+Email Template: Enable email notifications
 
----
+Step 3.2 — Link Workflow to CR Types
+Transaction: USMD_RULE → Process Modeling
 
-## Test Environment Details
+For each CR Type (MAT01, MAT02, MAT03):
+Event: Start of Change Request
+Action: Start Workflow
+Workflow: Z_WS_MDG_APPROVAL
 
-### System Configuration
+Phase 4: IDOC Configuration
+Step 4.1 — Define Logical Systems
+Transaction: SALE → Basic Settings → Logical Systems
 
-**MDG Central Hub**:
-```
-System ID:        DEV
-Client:           100
-Version:          SAP ECC 6.0 EHP8
-MDG Version:      8.0
-```
+Logical System
+Description
+MDGHUB_100
+MDG Central Hub
+PLANT1_100
+Plant 1 System
+PLANT2_100
+Plant 2 System
+PLANT3_100
+Plant 3 System
 
-**Plant Systems**:
-```
-Plant 1:
-  System ID:      P01
-  Client:         110
-  Logical System: PLANT1_100
-  
-Plant 2:
-  System ID:      P02
-  Client:         120
-  Logical System: PLANT2_100
-  
-Plant 3:
-  System ID:      P03
-  Client:         130
-  Logical System: PLANT3_100
-```
+Assign logical systems to clients via SCC4.
 
----
+Step 4.2 — Create RFC Destinations
+Transaction: SM59
 
-## Lessons Learned
+Example configuration for Plant 1 (repeat for Plant 2 and 3):
+RFC Destination: SAPPLANT1
+Connection Type: 3 (ABAP)
+Target Host: plant1.company.com
+System Number: 00
+Client: 100
 
-### What Went Well
-- BADI implementation was straightforward and effective
-- IDOC filtering worked correctly on first attempt for segment-level filtering
-- Workflow integration with USMD_ATC_1ST was seamless
-- Performance exceeded initial expectations after parallel processing was enabled
+After saving, click Connection Test and Remote Logon to verify.
 
-### Challenges Faced
-- Initial SMTP configuration issue delayed workflow testing by 1 day
-- Bulk testing revealed need for parallel IDOC processing (RBDMOIND)
-- Material number extraction from IDOC required segment position adjustment (offset 3-20)
+Step 4.3 — Configure Ports
+Transaction: WE21
 
+Create tRFC port for each plant:
+Port: SAPPLANT1
+Description: tRFC Port to Plant 1
+RFC Destination: SAPPLANT1
 
+Repeat for SAPPLANT2 and SAPPLANT3.
 
----
+Step 4.4 — Configure Partner Profiles
+Transaction: WE20
 
-**Test Cycle Completed**: May 15, 2026  
-**Prepared By**: Madhuri - SAP MDG Consultant  
-**Project Type**: Portfolio / Self-Directed Implementation  
-**Overall Result**: ✅ ALL 17 SCENARIOS PASSED
+Outbound Parameters (MDG Hub)
+For Partner PLANT1_100 (type LS):
+Message Type: MATMAS
+Receiver Port: SAPPLANT1
+Pack Size: 1
+Output Mode: Transfer IDocs Immediately
+Basic Type: MATMAS05
+
+Repeat for PLANT2_100 and PLANT3_100.
+
+Inbound Parameters (Plant Systems)
+On each plant system, for partner MDGHUB_100 (type LS):
+Message Type: MATMAS
+Process Code: MATM
+Processing Type: Trigger Immediately
+
+Step 4.5 — Create Distribution Model
+Transaction: BD64
+
+10.Create new model: Z_MDG_MATMAS_DIST
+11.Add model view with Sender: MDGHUB_100
+12.Add receivers with plant-specific filters:
+
+Plant 1 filter:
+Message Type: MATMAS
+Filter Object: MARC
+Filter: WERKS = 1000
+
+Plant 2 filter:
+Message Type: MATMAS
+Filter Object: MARC
+Filter: WERKS = 2000
+
+Plant 3 filter:
+Message Type: MATMAS
+Filter Object: MARC
+Filter: WERKS = 3000
+
+13.Generate partner profiles: Environment → Generate Partner Profiles
+
+Phase 5: Custom Development
+Step 5.1 — Material Validation BAdI
+Transaction: SE19 | Enhancement Spot: USMD_CUSTOMER
+
+14.Create implementation: Z_USMD_MATL_IMPL
+15.Add BAdI: USMD_RULE_SERVICE_BADI_MATL
+16.Implementing class: ZCL_USMD_MATL_VALIDATION
+17.Copy code from zcl_usmd_matl_validation.abap and activate
+
+Verification: Go to SE18, confirm BAdI implementation is active. Test with a dummy change request.
+
+Step 5.2 — IDOC Filter BAdI
+BAdI: USMD_IDOC_FILTER
+
+18.Create implementation: Z_USMD_IDOC_FILTER_IMPL
+19.Implementing class: ZCL_USMD_IDOC_FILTER
+20.Copy code from zcl_usmd_idoc_filter.abap and activate
+
+This BAdI strips non-relevant plant segments from each outbound IDOC before distribution. Critical to prevent cross-plant data leakage.
+
+Step 5.3 — Error Monitoring Program
+Transaction: SE38
+
+21.Create program: Z_MDG_IDOC_ERROR_MONITOR
+22.Copy code from z_mdg_idoc_error_monitor.abap and activate
+23.Create transaction code: ZIDOCMON
+24.Schedule as background job via SM36:
+◦Job Name: Z_MDG_IDOC_MONITOR_HOURLY
+◦Frequency: Hourly
+◦Create variant with default parameters
+
+Phase 6: Testing
+Step 6.1 — Unit Testing
+Validation Rules
+•Create material with duplicate description → expect error
+•Create material without mandatory fields → expect error
+•Enter invalid plant code → expect error
+
+Workflow
+•Create change request → verify workflow triggered in SWIA
+•Confirm email notification sent to approver
+•Approve and reject → verify status change in MDG
+
+Step 6.2 — Integration Testing
+IDOC Generation
+25.Create material with plant data and activate change request
+26.Check IDOC generated in WE02
+27.Verify IDOC sent to correct plant only in WE05
+
+IDOC Processing in Plant System
+28.Check IDOC received in WE02 on plant system
+29.Verify material created in MARA/MARC with correct data
+30.Cross-check plant-specific segments are accurate
+
+Step 6.3 — Error Scenario Testing
+•Simulate communication error → verify auto-retry triggered
+•Create material with invalid data → verify error logged with detail
+•Run Z_MDG_IDOC_ERROR_MONITOR → verify reprocessing works for status 64/68
+
+Post-Implementation Notes
+Monitoring
+•Schedule Z_MDG_IDOC_ERROR_MONITOR (SM36) to run hourly
+•Review IDOC statistics regularly in WE02/WE05
+•Monitor BRF+ rule hit rates in USMD_RULE
+•Enable parallel IDOC processing via RBDMOIND for high-volume scenarios
+•Archive processed IDOCs after 90 days to keep EDIDC/EDID4 lean
+
+Known Limitations & Planned Improvements
+•Plant-to-logical-system mapping is currently hardcoded in ZCL_USMD_IDOC_FILTER — recommend moving to a Z-table for maintainability without transports
+•Mandatory field list in ZCL_USMD_MATL_VALIDATION is hardcoded — a configuration table would let business users adjust without developer involvement
+•Current workflow is single-step for all material types — multi-level approval by material type is a planned enhancement
+
+Troubleshooting Guide
+IDOC Not Generated
+Symptoms: Activation successful but no IDOC created
+
+Checks:
+•NACE configuration for output type
+•Distribution model in BD64
+•Partner profile in WE20
+•Application log in SLG1
+
+Use WE19 (IDOC Test Tool) to create a test IDOC manually and identify the exact failure point.
+
+IDOC Status 51 — Application Error
+Meaning: Data issue in the receiving system. Cannot be auto-reprocessed.
+
+31.Check error detail in WE02
+32.Review data (missing mandatory fields, invalid values)
+33.Correct data in MDG and reactivate the change request
+
+IDOC Status 64 / 68 — Technical Error
+Meaning: Infrastructure or connectivity issue. Safe to auto-reprocess.
+
+34.Run Z_MDG_IDOC_ERROR_MONITOR with reprocess checkbox enabled
+35.IDOCs will be reprocessed via EDI_DOCUMENT_REPROCESS_DIRECT
+36.If error persists, check RFC destination and system availability
+
+Validation Not Triggering
+Symptoms: Duplicate materials being created despite BRF+ rule
+
+Checks:
+•BAdI is active in SE19
+•Rule is assigned to correct CR types in USMD_RULE
+•CR type configuration is correct
+
+Debug: Set breakpoint in ZCL_USMD_MATL_VALIDATION → CHECK_ENTITY method, then create a test change request to confirm the BAdI is being called.
+
+Transaction Code Reference
+
+TCode
+Description
+USMD_MODEL
+Data model configuration
+USMD_RULE
+Rule and workflow configuration
+USMD_UI_CONF
+UI configuration
+MDG_MM_MANAGE
+Material management UI
+WE20
+Partner profiles
+WE81
+Message types
+BD64
+Distribution model
+WE02
+IDOC display
+WE05
+IDOC lists
+WE19
+IDOC test tool
+PFTC
+Workflow definition
+SM36
+Background job scheduling
+SLG1
+Application log
+SCOT
+Email/SMTP configuration
+
