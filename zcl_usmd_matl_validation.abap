@@ -3,46 +3,6 @@
 *& BADI: USMD_RULE_SERVICE_BADI_MATL
 *& Purpose: Custom validations for Material Master MDG
 *&---------------------------------------------------------------------*
-*&
-*& DESIGN WALKTHROUGH
-*& ==================
-*& WHY THIS BADI?
-*&   SAP MDG triggers USMD_RULE_SERVICE_BADI_MATL at the validation
-*&   step of every change request lifecycle — before activation.
-*&   This is the correct interception point because:
-*&     (a) It runs AFTER the user submits data but BEFORE it gets
-*&         written to the active area, so we can block bad data early.
-*&     (b) It integrates with the MDG message framework, so errors
-*&         appear inline on the MDG UI rather than as a dump.
-*&
-*& WHY FOUR SEPARATE METHODS?
-*&   Each validation concern is isolated in its own private method.
-*&   This means:
-*&     - Individual validations can be unit-tested independently
-*&     - A failure in one check does NOT abort the others — the user
-*&       sees ALL errors at once instead of one at a time
-*&     - New validations can be added without touching existing logic
-*&
-*& WHY CHECK MAKT FOR DUPLICATES?
-*&   Material descriptions are stored per language in MAKT. We check
-*&   the active (production) table rather than the MDG staging area
-*&   to catch conflicts with already-activated materials. The current
-*&   material is excluded from the check using <> iv_matnr.
-*&
-*& WHY MATERIAL-TYPE SPECIFIC RULES?
-*&   Business rules differ by material type (ROH=Raw, FERT=Finished,
-*&   HALB=Semi-finished). Applying uniform rules across all types
-*&   would either block valid data or miss real errors. The CASE
-*&   structure makes it easy to extend for additional types (HAWA,
-*&   DIEN, etc.) without restructuring the class.
-*&
-*& NOTE ON MESSAGE CLASS ZMDG_MSG:
-*&   Message numbers are structured as:
-*&     001 = Duplicate description
-*&     002 = Mandatory field missing
-*&     003 = Plant does not exist
-*&     004-006 = Material type specific warnings/errors
-*&
 *&---------------------------------------------------------------------*
 CLASS zcl_usmd_matl_validation DEFINITION
   PUBLIC
@@ -85,12 +45,6 @@ CLASS zcl_usmd_matl_validation IMPLEMENTATION.
 
 *&---------------------------------------------------------------------*
 *& Main CHECK_ENTITY Method (Called by MDG Framework)
-*&
-*& DESIGN NOTE: We deliberately do NOT exit early on first error.
-*& All four checks run regardless of prior failures, so the user
-*& sees the complete list of issues in a single submit cycle.
-*& Each check writes to a local lt_messages buffer which is then
-*& appended to et_message — this avoids accidental overwrites.
 *&---------------------------------------------------------------------*
   METHOD if_usmd_rule_service_badi~check_entity.
 
@@ -175,13 +129,6 @@ CLASS zcl_usmd_matl_validation IMPLEMENTATION.
 
 *&---------------------------------------------------------------------*
 *& Check for duplicate material description
-*&
-*& DESIGN NOTE: We query MAKT (active area) filtered by current
-*& logon language (sy-langu). Cross-language duplicates are out of
-*& scope — different language teams manage their own descriptions.
-*& The <> iv_matnr exclusion is critical: without it, editing an
-*& existing material would always trigger a false duplicate error
-*& against itself.
 *&---------------------------------------------------------------------*
   METHOD check_duplicate_material.
 
@@ -214,15 +161,6 @@ CLASS zcl_usmd_matl_validation IMPLEMENTATION.
 
 *&---------------------------------------------------------------------*
 *& Check mandatory fields
-*&
-*& DESIGN NOTE: The mandatory field list is defined inline here for
-*& simplicity in this portfolio implementation. In a production
-*& system, this list would be maintained in a custom configuration
-*& table (e.g. ZMDG_MAND_FIELDS) so business users can adjust
-*& requirements without a transport request.
-*&
-*& Fields checked: MAKTX (Description), MEINS (Base UOM),
-*&                 MTART (Material Type), MATKL (Material Group)
 *&---------------------------------------------------------------------*
   METHOD check_mandatory_fields.
 
@@ -255,13 +193,6 @@ CLASS zcl_usmd_matl_validation IMPLEMENTATION.
 
 *&---------------------------------------------------------------------*
 *& Check if plant exists in T001W
-*&
-*& DESIGN NOTE: T001W is the standard SAP plant master table.
-*& We validate against it rather than a custom table to ensure
-*& the plant is genuinely active in the system landscape.
-*& This prevents IDOC distribution failures downstream — if the
-*& plant doesn't exist here, the MATMAS IDOC will fail at the
-*& receiving system too.
 *&---------------------------------------------------------------------*
   METHOD check_plant_existence.
 
@@ -291,23 +222,6 @@ CLASS zcl_usmd_matl_validation IMPLEMENTATION.
 
 *&---------------------------------------------------------------------*
 *& Material type-specific validations
-*&
-*& DESIGN NOTE: Each WHEN block represents a different governance
-*& policy agreed with the business:
-*&
-*&   ROH (Raw Materials): Material group must start with 'RM' prefix
-*&     — enforces the company's material group naming convention for
-*&     procurement categorization and spend analytics.
-*&
-*&   FERT (Finished Products): Base UOM should be 'PC' (Pieces)
-*&     — issued as a Warning (W) not Error (E) because edge cases
-*&     exist (e.g. bulk liquids measured in LT). Business wanted
-*&     visibility without hard blocking.
-*&
-*&   HALB (Semi-Finished): Material group is mandatory
-*&     — stricter than the general mandatory check because HALB
-*&     materials feed production BOMs and incorrect grouping causes
-*&     costing errors.
 *&---------------------------------------------------------------------*
   METHOD check_material_type_specific.
 
