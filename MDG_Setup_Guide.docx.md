@@ -2,7 +2,7 @@
 
 **Setup & Configuration Guide**
 
-Madhuri  •  SAP MDG Consultant  •  Portfolio Project  •  May 2026
+Madhuri  •  SAP MDG Consultant  •  Portfolio Project  • FEB 2026
 
 # **Prerequisites**
 
